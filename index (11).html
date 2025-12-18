@@ -1,0 +1,741 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chess Nemesis - The AI That Barely Beats You</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Chess.js for game logic -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>
+    <style>
+        * { font-family: 'Space Grotesk', sans-serif; }
+        
+        :root {
+            --dark-square: #769656;
+            --light-square: #eeeed2;
+            --highlight: #baca44;
+            --selected: #f6f669;
+            --possible-move: rgba(0,0,0,0.1);
+            --last-move: rgba(255,255,0,0.4);
+        }
+        
+        body {
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+            min-height: 100vh;
+        }
+        
+        .chess-board {
+            display: grid;
+            grid-template-columns: repeat(8, 1fr);
+            border: 4px solid #2d3748;
+            border-radius: 4px;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+        }
+        
+        .square {
+            aspect-ratio: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: clamp(2rem, 8vw, 4rem);
+            cursor: pointer;
+            position: relative;
+            user-select: none;
+            transition: all 0.1s ease;
+        }
+        
+        .square.light { background-color: var(--light-square); }
+        .square.dark { background-color: var(--dark-square); }
+        .square.selected { background-color: var(--selected) !important; }
+        .square.last-move { box-shadow: inset 0 0 0 4px var(--last-move); }
+        .square.possible-move::after {
+            content: '';
+            position: absolute;
+            width: 30%;
+            height: 30%;
+            background: var(--possible-move);
+            border-radius: 50%;
+        }
+        .square.possible-capture::after {
+            content: '';
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            border: 4px solid rgba(0,0,0,0.1);
+            border-radius: 50%;
+            box-sizing: border-box;
+        }
+        
+        .square:hover {
+            filter: brightness(1.1);
+        }
+        
+        .piece {
+            filter: drop-shadow(2px 2px 2px rgba(0,0,0,0.3));
+            transition: transform 0.1s ease;
+        }
+        
+        .square:hover .piece {
+            transform: scale(1.05);
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        
+        .thinking {
+            animation: pulse 1s ease-in-out infinite;
+        }
+        
+        @keyframes slideIn {
+            from { opacity: 0; transform: translateY(-20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        
+        .animate-slideIn {
+            animation: slideIn 0.5s ease-out;
+        }
+        
+        .glass-card {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+        
+        .skill-meter {
+            background: linear-gradient(90deg, #22c55e 0%, #eab308 50%, #ef4444 100%);
+        }
+    </style>
+</head>
+<body class="text-white">
+    <div class="container mx-auto px-4 py-8 max-w-6xl">
+        <!-- Header -->
+        <header class="text-center mb-8 animate-slideIn">
+            <h1 class="text-4xl md:text-5xl font-bold mb-2">
+                ♟️ Chess <span class="text-yellow-400">Nemesis</span>
+            </h1>
+            <p class="text-gray-400">The AI that always beats you... barely.</p>
+        </header>
+
+        <div class="grid lg:grid-cols-3 gap-8">
+            <!-- Game Stats Panel -->
+            <div class="lg:col-span-1 space-y-4">
+                <!-- AI Skill Tracking -->
+                <div class="glass-card rounded-2xl p-5">
+                    <h3 class="text-lg font-bold mb-3 flex items-center gap-2">
+                        <span>🤖</span> AI Adaptation
+                    </h3>
+                    <div class="space-y-3">
+                        <div>
+                            <div class="flex justify-between text-sm mb-1">
+                                <span class="text-gray-400">Your Estimated Skill</span>
+                                <span id="playerSkill" class="font-bold text-yellow-400">1200</span>
+                            </div>
+                            <div class="h-2 bg-gray-700 rounded-full overflow-hidden">
+                                <div id="skillBar" class="h-full skill-meter rounded-full transition-all duration-500" style="width: 40%"></div>
+                            </div>
+                        </div>
+                        <div>
+                            <div class="flex justify-between text-sm mb-1">
+                                <span class="text-gray-400">AI Playing At</span>
+                                <span id="aiSkill" class="font-bold text-green-400">1300</span>
+                            </div>
+                        </div>
+                        <div>
+                            <div class="flex justify-between text-sm mb-1">
+                                <span class="text-gray-400">AI Search Depth</span>
+                                <span id="aiDepth" class="font-bold text-blue-400">4</span>
+                            </div>
+                        </div>
+                        <p class="text-xs text-gray-500 mt-2">
+                            AI adjusts to stay slightly above your level
+                        </p>
+                    </div>
+                </div>
+
+                <!-- Game Status -->
+                <div class="glass-card rounded-2xl p-5">
+                    <h3 class="text-lg font-bold mb-3">📊 Game Status</h3>
+                    <div class="space-y-2 text-sm">
+                        <div class="flex justify-between">
+                            <span class="text-gray-400">Turn</span>
+                            <span id="turnIndicator" class="font-bold">Your Move (White)</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-gray-400">Move #</span>
+                            <span id="moveNumber" class="font-bold">1</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-gray-400">Evaluation</span>
+                            <span id="material" class="font-bold">Even</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Score -->
+                <div class="glass-card rounded-2xl p-5">
+                    <h3 class="text-lg font-bold mb-3">🏆 Score</h3>
+                    <div class="flex justify-around text-center">
+                        <div>
+                            <div id="playerWins" class="text-3xl font-bold text-blue-400">0</div>
+                            <div class="text-xs text-gray-400">You</div>
+                        </div>
+                        <div class="text-2xl text-gray-600">-</div>
+                        <div>
+                            <div id="aiWins" class="text-3xl font-bold text-red-400">0</div>
+                            <div class="text-xs text-gray-400">Nemesis</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Controls -->
+                <div class="space-y-2">
+                    <button onclick="resetGame()" class="w-full py-3 bg-gradient-to-r from-yellow-500 to-orange-500 rounded-xl font-bold hover:shadow-lg transition-all">
+                        🔄 New Game
+                    </button>
+                    <button onclick="undoMove()" class="w-full py-3 bg-gray-700 hover:bg-gray-600 rounded-xl font-bold transition-all">
+                        ↩️ Undo Move
+                    </button>
+                </div>
+            </div>
+
+            <!-- Chess Board -->
+            <div class="lg:col-span-2">
+                <div id="status" class="text-center mb-4 h-8 text-lg font-semibold">
+                    <span class="text-green-400">Your turn - White to move</span>
+                </div>
+                
+                <div id="board" class="chess-board max-w-xl mx-auto"></div>
+                
+                <!-- Captured Pieces -->
+                <div class="mt-4 flex justify-between max-w-xl mx-auto">
+                    <div>
+                        <span class="text-xs text-gray-400">Captured by you:</span>
+                        <div id="capturedByPlayer" class="text-2xl h-8"></div>
+                    </div>
+                    <div class="text-right">
+                        <span class="text-xs text-gray-400">Captured by AI:</span>
+                        <div id="capturedByAI" class="text-2xl h-8"></div>
+                    </div>
+                </div>
+
+                <!-- Move History -->
+                <div class="glass-card rounded-xl p-4 mt-4 max-w-xl mx-auto">
+                    <h4 class="text-sm font-bold mb-2 text-gray-400">Move History</h4>
+                    <div id="moveHistory" class="text-sm font-mono h-20 overflow-y-auto text-gray-300"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Chess pieces Unicode
+        const PIECES = {
+            'K': '♔', 'Q': '♕', 'R': '♖', 'B': '♗', 'N': '♘', 'P': '♙',
+            'k': '♚', 'q': '♛', 'r': '♜', 'b': '♝', 'n': '♞', 'p': '♟'
+        };
+
+        // Piece values for evaluation
+        const PIECE_VALUES = { p: 100, n: 320, b: 330, r: 500, q: 900, k: 20000 };
+
+        // Piece-square tables for positional evaluation
+        const PST = {
+            p: [
+                [0,  0,  0,  0,  0,  0,  0,  0],
+                [50, 50, 50, 50, 50, 50, 50, 50],
+                [10, 10, 20, 30, 30, 20, 10, 10],
+                [5,  5, 10, 25, 25, 10,  5,  5],
+                [0,  0,  0, 20, 20,  0,  0,  0],
+                [5, -5,-10,  0,  0,-10, -5,  5],
+                [5, 10, 10,-20,-20, 10, 10,  5],
+                [0,  0,  0,  0,  0,  0,  0,  0]
+            ],
+            n: [
+                [-50,-40,-30,-30,-30,-30,-40,-50],
+                [-40,-20,  0,  0,  0,  0,-20,-40],
+                [-30,  0, 10, 15, 15, 10,  0,-30],
+                [-30,  5, 15, 20, 20, 15,  5,-30],
+                [-30,  0, 15, 20, 20, 15,  0,-30],
+                [-30,  5, 10, 15, 15, 10,  5,-30],
+                [-40,-20,  0,  5,  5,  0,-20,-40],
+                [-50,-40,-30,-30,-30,-30,-40,-50]
+            ],
+            b: [
+                [-20,-10,-10,-10,-10,-10,-10,-20],
+                [-10,  0,  0,  0,  0,  0,  0,-10],
+                [-10,  0, 10, 10, 10, 10,  0,-10],
+                [-10,  5,  5, 10, 10,  5,  5,-10],
+                [-10,  0,  5, 10, 10,  5,  0,-10],
+                [-10,  5,  5,  5,  5,  5,  5,-10],
+                [-10,  5,  0,  0,  0,  0,  5,-10],
+                [-20,-10,-10,-10,-10,-10,-10,-20]
+            ],
+            r: [
+                [0,  0,  0,  0,  0,  0,  0,  0],
+                [5, 10, 10, 10, 10, 10, 10,  5],
+                [-5,  0,  0,  0,  0,  0,  0, -5],
+                [-5,  0,  0,  0,  0,  0,  0, -5],
+                [-5,  0,  0,  0,  0,  0,  0, -5],
+                [-5,  0,  0,  0,  0,  0,  0, -5],
+                [-5,  0,  0,  0,  0,  0,  0, -5],
+                [0,  0,  0,  5,  5,  0,  0,  0]
+            ],
+            q: [
+                [-20,-10,-10, -5, -5,-10,-10,-20],
+                [-10,  0,  0,  0,  0,  0,  0,-10],
+                [-10,  0,  5,  5,  5,  5,  0,-10],
+                [-5,  0,  5,  5,  5,  5,  0, -5],
+                [0,  0,  5,  5,  5,  5,  0, -5],
+                [-10,  5,  5,  5,  5,  5,  0,-10],
+                [-10,  0,  5,  0,  0,  0,  0,-10],
+                [-20,-10,-10, -5, -5,-10,-10,-20]
+            ],
+            k: [
+                [-30,-40,-40,-50,-50,-40,-40,-30],
+                [-30,-40,-40,-50,-50,-40,-40,-30],
+                [-30,-40,-40,-50,-50,-40,-40,-30],
+                [-30,-40,-40,-50,-50,-40,-40,-30],
+                [-20,-30,-30,-40,-40,-30,-30,-20],
+                [-10,-20,-20,-20,-20,-20,-20,-10],
+                [20, 20,  0,  0,  0,  0, 20, 20],
+                [20, 30, 10,  0,  0, 10, 30, 20]
+            ],
+            k_endgame: [
+                [-50,-40,-30,-20,-20,-30,-40,-50],
+                [-30,-20,-10,  0,  0,-10,-20,-30],
+                [-30,-10, 20, 30, 30, 20,-10,-30],
+                [-30,-10, 30, 40, 40, 30,-10,-30],
+                [-30,-10, 30, 40, 40, 30,-10,-30],
+                [-30,-10, 20, 30, 30, 20,-10,-30],
+                [-30,-30,  0,  0,  0,  0,-30,-30],
+                [-50,-30,-30,-30,-30,-30,-30,-50]
+            ]
+        };
+
+        // Game state
+        let game = new Chess();
+        let selectedSquare = null;
+        let possibleMoves = [];
+        let lastMove = null;
+        let playerSkillRating = 1200;
+        let playerWins = 0;
+        let aiWins = 0;
+        let capturedByPlayer = [];
+        let capturedByAI = [];
+        let searchDepth = 4;
+        let positionsEvaluated = 0;
+
+        // Transposition table for caching
+        let transpositionTable = new Map();
+
+        // Initialize board
+        function initBoard() {
+            const board = document.getElementById('board');
+            board.innerHTML = '';
+            
+            for (let row = 0; row < 8; row++) {
+                for (let col = 0; col < 8; col++) {
+                    const square = document.createElement('div');
+                    const isLight = (row + col) % 2 === 0;
+                    const squareName = String.fromCharCode(97 + col) + (8 - row);
+                    
+                    square.className = `square ${isLight ? 'light' : 'dark'}`;
+                    square.dataset.square = squareName;
+                    square.onclick = () => handleSquareClick(squareName);
+                    
+                    board.appendChild(square);
+                }
+            }
+            
+            renderBoard();
+        }
+
+        // Render pieces on board
+        function renderBoard() {
+            const squares = document.querySelectorAll('.square');
+            
+            squares.forEach(square => {
+                const squareName = square.dataset.square;
+                const piece = game.get(squareName);
+                
+                square.classList.remove('selected', 'possible-move', 'possible-capture', 'last-move');
+                
+                if (piece) {
+                    const pieceChar = piece.color === 'w' ? piece.type.toUpperCase() : piece.type;
+                    square.innerHTML = `<span class="piece">${PIECES[pieceChar]}</span>`;
+                } else {
+                    square.innerHTML = '';
+                }
+                
+                if (selectedSquare === squareName) {
+                    square.classList.add('selected');
+                }
+                
+                if (possibleMoves.includes(squareName)) {
+                    const isCapture = game.get(squareName);
+                    square.classList.add(isCapture ? 'possible-capture' : 'possible-move');
+                }
+                
+                if (lastMove && (lastMove.from === squareName || lastMove.to === squareName)) {
+                    square.classList.add('last-move');
+                }
+            });
+            
+            updateStatus();
+            updateStats();
+        }
+
+        // Handle square click
+        function handleSquareClick(squareName) {
+            if (game.game_over() || game.turn() === 'b') return;
+            
+            const piece = game.get(squareName);
+            
+            if (possibleMoves.includes(squareName)) {
+                makePlayerMove(selectedSquare, squareName);
+                return;
+            }
+            
+            if (piece && piece.color === 'w') {
+                selectedSquare = squareName;
+                const moves = game.moves({ square: squareName, verbose: true });
+                possibleMoves = moves.map(m => m.to);
+            } else {
+                selectedSquare = null;
+                possibleMoves = [];
+            }
+            
+            renderBoard();
+        }
+
+        // Make player move
+        function makePlayerMove(from, to) {
+            const piece = game.get(from);
+            let promotion = undefined;
+            if (piece && piece.type === 'p') {
+                const toRow = parseInt(to[1]);
+                if (toRow === 8 || toRow === 1) {
+                    promotion = 'q';
+                }
+            }
+
+            const captured = game.get(to);
+            const move = game.move({ from, to, promotion });
+            
+            if (move) {
+                if (captured) {
+                    capturedByPlayer.push(captured.type);
+                }
+                
+                lastMove = { from, to };
+                selectedSquare = null;
+                possibleMoves = [];
+                
+                addMoveToHistory(move, 'w');
+                renderBoard();
+                
+                if (!game.game_over()) {
+                    setTimeout(makeAIMove, 300);
+                } else {
+                    handleGameOver();
+                }
+            }
+        }
+
+        // Evaluate board position
+        function evaluatePosition() {
+            if (game.in_checkmate()) {
+                return game.turn() === 'w' ? -99999 : 99999;
+            }
+            if (game.in_draw() || game.in_stalemate()) {
+                return 0;
+            }
+
+            let score = 0;
+            let whiteMaterial = 0;
+            let blackMaterial = 0;
+            const board = game.board();
+            
+            for (let row = 0; row < 8; row++) {
+                for (let col = 0; col < 8; col++) {
+                    const piece = board[row][col];
+                    if (piece) {
+                        const value = PIECE_VALUES[piece.type];
+                        
+                        // Get position table value
+                        let pstValue = 0;
+                        if (PST[piece.type]) {
+                            if (piece.color === 'w') {
+                                pstValue = PST[piece.type][row][col];
+                            } else {
+                                pstValue = PST[piece.type][7 - row][col];
+                            }
+                        }
+                        
+                        if (piece.color === 'w') {
+                            score += value + pstValue;
+                            whiteMaterial += value;
+                        } else {
+                            score -= value + pstValue;
+                            blackMaterial += value;
+                        }
+                    }
+                }
+            }
+            
+            // Mobility bonus
+            const currentTurn = game.turn();
+            const moves = game.moves().length;
+            score += (currentTurn === 'w' ? 1 : -1) * moves * 5;
+            
+            // King safety - penalize exposed king
+            if (game.in_check()) {
+                score += game.turn() === 'w' ? -50 : 50;
+            }
+            
+            return score;
+        }
+
+        // Minimax with alpha-beta pruning
+        function minimax(depth, alpha, beta, isMaximizing) {
+            positionsEvaluated++;
+            
+            if (depth === 0 || game.game_over()) {
+                return evaluatePosition();
+            }
+
+            const moves = game.moves({ verbose: true });
+            
+            // Move ordering - check captures and checks first
+            moves.sort((a, b) => {
+                let scoreA = 0, scoreB = 0;
+                if (a.captured) scoreA += PIECE_VALUES[a.captured] * 10;
+                if (b.captured) scoreB += PIECE_VALUES[b.captured] * 10;
+                if (a.san.includes('+')) scoreA += 50;
+                if (b.san.includes('+')) scoreB += 50;
+                if (a.promotion) scoreA += 800;
+                if (b.promotion) scoreB += 800;
+                return scoreB - scoreA;
+            });
+
+            if (isMaximizing) {
+                let maxEval = -Infinity;
+                for (const move of moves) {
+                    game.move(move);
+                    const eval_ = minimax(depth - 1, alpha, beta, false);
+                    game.undo();
+                    maxEval = Math.max(maxEval, eval_);
+                    alpha = Math.max(alpha, eval_);
+                    if (beta <= alpha) break;
+                }
+                return maxEval;
+            } else {
+                let minEval = Infinity;
+                for (const move of moves) {
+                    game.move(move);
+                    const eval_ = minimax(depth - 1, alpha, beta, true);
+                    game.undo();
+                    minEval = Math.min(minEval, eval_);
+                    beta = Math.min(beta, eval_);
+                    if (beta <= alpha) break;
+                }
+                return minEval;
+            }
+        }
+
+        // AI makes a move with adaptive difficulty
+        function makeAIMove() {
+            document.getElementById('status').innerHTML = '<span class="thinking text-yellow-400">🤖 Nemesis is calculating...</span>';
+            
+            setTimeout(() => {
+                positionsEvaluated = 0;
+                const moves = game.moves({ verbose: true });
+                if (moves.length === 0) return;
+                
+                // Evaluate current position to determine strategy
+                const currentEval = evaluatePosition();
+                const aiAdvantage = -currentEval; // Positive if AI (black) is winning
+                
+                // Determine search depth based on game phase and player skill
+                const moveCount = game.history().length;
+                if (moveCount < 10) {
+                    searchDepth = 3; // Opening - faster
+                } else if (moveCount < 40) {
+                    searchDepth = 4; // Middlegame
+                } else {
+                    searchDepth = 5; // Endgame - deeper search
+                }
+                
+                document.getElementById('aiDepth').textContent = searchDepth;
+                
+                // Calculate all moves with scores
+                const evaluatedMoves = [];
+                for (const move of moves) {
+                    game.move(move);
+                    const score = -minimax(searchDepth - 1, -Infinity, Infinity, true);
+                    game.undo();
+                    evaluatedMoves.push({ move, score });
+                }
+                
+                // Sort by score (best for black first)
+                evaluatedMoves.sort((a, b) => b.score - a.score);
+                
+                let selectedMove;
+                
+                // Adaptive strategy based on position
+                if (aiAdvantage > 500) {
+                    // AI is winning big - occasionally make slightly suboptimal moves to keep it close
+                    const topMoves = evaluatedMoves.slice(0, Math.min(3, evaluatedMoves.length));
+                    // Still mostly pick the best move
+                    if (Math.random() < 0.7) {
+                        selectedMove = topMoves[0].move;
+                    } else {
+                        selectedMove = topMoves[Math.floor(Math.random() * topMoves.length)].move;
+                    }
+                } else if (aiAdvantage < -300) {
+                    // AI is losing - play the absolute best move
+                    selectedMove = evaluatedMoves[0].move;
+                } else {
+                    // Close game - play best move to edge out the win
+                    selectedMove = evaluatedMoves[0].move;
+                }
+                
+                // Make the move
+                const captured = game.get(selectedMove.to);
+                const move = game.move(selectedMove);
+                
+                if (captured) {
+                    capturedByAI.push(captured.type);
+                }
+                
+                lastMove = { from: selectedMove.from, to: selectedMove.to };
+                addMoveToHistory(move, 'b');
+                
+                console.log(`AI evaluated ${positionsEvaluated} positions at depth ${searchDepth}`);
+                
+                renderBoard();
+                
+                if (game.game_over()) {
+                    handleGameOver();
+                }
+            }, 100);
+        }
+
+        // Add move to history
+        function addMoveToHistory(move, color) {
+            const moveNum = Math.ceil(game.history().length / 2);
+            const historyDiv = document.getElementById('moveHistory');
+            
+            if (color === 'w') {
+                historyDiv.innerHTML += `<span class="text-gray-500">${moveNum}.</span> ${move.san} `;
+            } else {
+                historyDiv.innerHTML += `${move.san} &nbsp;`;
+            }
+            
+            historyDiv.scrollTop = historyDiv.scrollHeight;
+            document.getElementById('moveNumber').textContent = moveNum;
+        }
+
+        // Update game status
+        function updateStatus() {
+            const status = document.getElementById('status');
+            const turn = document.getElementById('turnIndicator');
+            
+            if (game.game_over()) {
+                if (game.in_checkmate()) {
+                    const winner = game.turn() === 'w' ? 'Nemesis' : 'You';
+                    status.innerHTML = `<span class="${winner === 'You' ? 'text-green-400' : 'text-red-400'}">Checkmate! ${winner} win!</span>`;
+                } else if (game.in_draw()) {
+                    status.innerHTML = '<span class="text-yellow-400">Draw!</span>';
+                } else if (game.in_stalemate()) {
+                    status.innerHTML = '<span class="text-yellow-400">Stalemate!</span>';
+                }
+            } else if (game.in_check()) {
+                status.innerHTML = `<span class="text-red-400">Check!</span>`;
+                turn.textContent = game.turn() === 'w' ? 'Your Move (White)' : 'AI Thinking...';
+            } else {
+                status.innerHTML = game.turn() === 'w' 
+                    ? '<span class="text-green-400">Your turn - White to move</span>'
+                    : '<span class="text-yellow-400">🤖 Nemesis is thinking...</span>';
+                turn.textContent = game.turn() === 'w' ? 'Your Move (White)' : 'AI Thinking...';
+            }
+        }
+
+        // Update stats display
+        function updateStats() {
+            const evaluation = evaluatePosition();
+            const materialDiv = document.getElementById('material');
+            
+            // Show evaluation from white's perspective
+            const evalInPawns = (evaluation / 100).toFixed(1);
+            if (evaluation > 50) {
+                materialDiv.innerHTML = `<span class="text-green-400">+${evalInPawns}</span>`;
+            } else if (evaluation < -50) {
+                materialDiv.innerHTML = `<span class="text-red-400">${evalInPawns}</span>`;
+            } else {
+                materialDiv.textContent = 'Even';
+            }
+            
+            // Captured pieces
+            const pieceSymbols = { p: '♟', n: '♞', b: '♝', r: '♜', q: '♛' };
+            document.getElementById('capturedByPlayer').textContent = 
+                capturedByPlayer.map(p => pieceSymbols[p] || '').join('');
+            document.getElementById('capturedByAI').textContent = 
+                capturedByAI.map(p => pieceSymbols[p] || '').join('');
+        }
+
+        // Handle game over
+        function handleGameOver() {
+            if (game.in_checkmate()) {
+                if (game.turn() === 'w') {
+                    aiWins++;
+                } else {
+                    playerWins++;
+                    // If player wins, increase AI difficulty next game
+                    searchDepth = Math.min(6, searchDepth + 1);
+                }
+            }
+            
+            document.getElementById('playerWins').textContent = playerWins;
+            document.getElementById('aiWins').textContent = aiWins;
+        }
+
+        // Reset game
+        function resetGame() {
+            game = new Chess();
+            selectedSquare = null;
+            possibleMoves = [];
+            lastMove = null;
+            capturedByPlayer = [];
+            capturedByAI = [];
+            transpositionTable.clear();
+            document.getElementById('moveHistory').innerHTML = '';
+            document.getElementById('moveNumber').textContent = '1';
+            renderBoard();
+        }
+
+        // Undo move
+        function undoMove() {
+            if (game.history().length >= 2) {
+                game.undo();
+                game.undo();
+                lastMove = null;
+                selectedSquare = null;
+                possibleMoves = [];
+                
+                if (capturedByPlayer.length > 0) capturedByPlayer.pop();
+                if (capturedByAI.length > 0) capturedByAI.pop();
+                
+                renderBoard();
+            }
+        }
+
+        // Initialize
+        initBoard();
+    </script>
+</body>
+</html>
